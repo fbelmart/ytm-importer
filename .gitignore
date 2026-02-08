@@ -1,1 +1,35 @@
-/target
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo files
+Cargo.lock
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output directory (can be regenerated)
+/output/
+
+# Sample data (optional - you might want to keep it)
+/samples/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
