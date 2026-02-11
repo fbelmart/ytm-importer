@@ -1,6 +1,6 @@
+use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use chrono::prelude::*;
-use std::path::PathBuf;
 
 /// Application configuration
 #[derive(Debug, Clone)]

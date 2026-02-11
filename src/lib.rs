@@ -1,5 +1,6 @@
 pub mod config;
 pub mod validation;
+pub mod csv_parser;
 
 use clap::Parser;
 
@@ -52,3 +53,4 @@ pub type AppResult<T> = anyhow::Result<T>;
 // Re-export commonly used items
 pub use config::{AppConfig, ImportConfig};
 pub use validation::ConfigValidator;
+pub use csv_parser::{CsvParser, Track, ParseStats};

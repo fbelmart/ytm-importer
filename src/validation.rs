@@ -144,7 +144,7 @@ impl ConfigValidator {
             "Track Name",
             "Artist Name(s)",
             "Album Name",
-            "Track ID",
+            "Track URI",
         ];
 
         let mut found_columns = 0;

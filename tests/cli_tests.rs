@@ -1,23 +1,38 @@
+// Remove unused imports
+#![allow(unused_imports)]
+
+use ytm_importer::validation::ConfigValidator;
+use tempfile::NamedTempFile;
+use std::io::Write;
+
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use tempfile::NamedTempFile;
-    use std::io::Write;
-
-    use crate::validation::ConfigValidator;
+    use super::*;
 
     #[test]
     fn test_validate_csv_file_exists() {
+        // Create a temp file with .csv extension
         let temp_file = NamedTempFile::new().unwrap();
-        let path = temp_file.path();
+        let path = temp_file.path().with_extension("csv");
 
-        // Should succeed for existing file
-        assert!(ConfigValidator::validate_csv_file(path).is_ok());
+        // Rename the temp file to have .csv extension
+        std::fs::rename(temp_file.path(), &path).unwrap();
+
+        // Write some CSV content
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(file, "Track Name,Artist Name(s),Album Name,Track URI").unwrap();
+        writeln!(file, "Test,Artist,Album,spotify:track:123").unwrap();
+
+        // Should succeed for existing CSV file
+        assert!(ConfigValidator::validate_csv_file(&path).is_ok());
+
+        // Cleanup
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn test_validate_csv_file_not_found() {
-        let path = PathBuf::from("/nonexistent/file.csv");
+        let path = std::path::PathBuf::from("/nonexistent/file.csv");
 
         // Should fail for non-existent file
         assert!(ConfigValidator::validate_csv_file(&path).is_err());
@@ -27,18 +42,12 @@ mod tests {
     fn test_validate_csv_extension() {
         // Create a file without .csv extension
         let mut temp_file = NamedTempFile::new().unwrap();
-        write!(temp_file, "test").unwrap();
+        writeln!(temp_file, "test").unwrap();
+
         let path = temp_file.path();
 
-        // Rename to remove .tmp extension
-        let new_path = path.with_extension("txt");
-        std::fs::rename(path, &new_path).unwrap();
-
         // Should fail for non-CSV extension
-        assert!(ConfigValidator::validate_csv_file(&new_path).is_err());
-
-        // Cleanup
-        let _ = std::fs::remove_file(new_path);
+        assert!(ConfigValidator::validate_csv_file(path).is_err());
     }
 
     #[test]
@@ -46,7 +55,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
 
         // Write Exportify-like header
-        writeln!(temp_file, "Track Name,Artist Name(s),Album Name,Track ID,Duration (ms)").unwrap();
+        writeln!(temp_file, "Track Name,Artist Name(s),Album Name,Track URI,Duration (ms)").unwrap();
         writeln!(temp_file, "Song 1,Artist 1,Album 1,spotify:track:123,180000").unwrap();
         writeln!(temp_file, "Song 2,Artist 2,Album 2,spotify:track:456,240000").unwrap();
 

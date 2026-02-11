@@ -3,8 +3,8 @@ name = "ytm-importer"
 version = "0.1.0"
 edition = "2021"
 description = "Import Spotify playlists to YouTube Music"
-authors = ["Your Name <you@example.com>"]
-license = "MIT OR Apache-2.0"
+authors = ["Francisco Belmar"]
+license = "MIT"
 readme = "README.md"
 repository = "https://github.com/fbelmart/ytm-importer"
 keywords = ["youtube", "music", "spotify", "playlist", "import"]
@@ -19,6 +19,7 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 csv = "1.2"
 tempfile = "3.6"  # For tests
+indicatif = "0.18.3"
 
 [dev-dependencies]
 tempfile = "3.6"

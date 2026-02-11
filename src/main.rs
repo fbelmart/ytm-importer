@@ -1,6 +1,7 @@
-use ytm_importer::Cli;
+use ytm_importer::{Cli, CsvParser, ParseStats};
 use clap::Parser;
 use anyhow::{Result, Context};
+use indicatif::{ProgressBar, ProgressStyle};
 
 mod config;
 mod validation;
@@ -37,13 +38,102 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n🚀 Starting import process...\n");
 
-    // TODO: Add CSV parsing and import logic
-    println!("[TODO] CSV parsing and import logic will be implemented in next steps");
+    // Parse CSV file with progress indicator
+    let tracks = parse_csv_file(&app_config)?;
 
-    // TODO: Generate summary
-    println!("\n✅ Import completed!");
+    // Display parse statistics
+    let stats = ParseStats::from_tracks(&tracks);
+    stats.print_summary();
+
+    // Apply track limit if specified
+    let tracks = if let Some(limit) = app_config.limit_tracks {
+        println!("\n⚠️  Limiting to first {} tracks (for testing)", limit);
+        tracks.into_iter().take(limit).collect()
+    } else {
+        tracks
+    };
+
+    // Display sample of tracks
+    if cli.verbosity > 0 {
+        display_track_sample(&tracks);
+    }
+
+    println!("\n✅ CSV parsing completed!");
+    println!("   Next step: Searching for tracks on YouTube Music...");
+
+    // TODO: Add YouTube Music API integration
+    // TODO: Track matching logic
+    // TODO: Playlist creation
 
     Ok(())
+}
+
+/// Parse CSV file with optional spinner
+fn parse_csv_file(config: &config::AppConfig) -> Result<Vec<ytm_importer::Track>> {
+    let start_time = std::time::Instant::now();
+
+    // Show spinner only in verbose mode
+    let pb = if config.verbosity > 0 {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg}")?
+                .tick_strings(&["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"]),
+        );
+        pb.set_message("Parsing CSV...");
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        Some(pb)
+    } else {
+        None
+    };
+
+    let tracks = CsvParser::parse_auto(&config.csv_path)
+        .with_context(|| format!("Failed to parse CSV file: {}", config.csv_path.display()))?;
+
+    let duration = start_time.elapsed();
+
+    // Finish progress bar if it exists
+    if let Some(pb) = pb {
+        pb.finish_with_message(format!("✅ Parsed {} tracks in {:.2?}", tracks.len(), duration));
+    } else if config.verbosity > 0 {
+        println!("  Parsed {} tracks in {:.2?}", tracks.len(), duration);
+    }
+
+    Ok(tracks)
+}
+
+/// Display sample of parsed tracks
+fn display_track_sample(tracks: &[ytm_importer::Track]) {
+    let display_count = std::cmp::min(5, tracks.len());
+
+    if display_count == 0 {
+        return;
+    }
+
+    println!("\n🎵 Sample of parsed tracks (first {}):", display_count);
+    println!("┌─────────────────────────────────────────────────────────────┐");
+
+    for (i, track) in tracks.iter().take(display_count).enumerate() {
+        let album_info = track.album.as_deref().unwrap_or("Unknown album");
+        let duration_info = track.duration_ms
+            .map(|ms| format!("{:.1}m", ms as f64 / 60000.0))
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        println!("│ {:2}. {:35.35} - {:20.20}",
+            i + 1, track.title, track.artist);
+        println!("│    Album: {:45.45} Duration: {:>8}",
+            album_info, duration_info);
+
+        if i < display_count - 1 && i < tracks.len() - 1 {
+            println!("│");
+        }
+    }
+
+    println!("└─────────────────────────────────────────────────────────────┘");
+
+    if tracks.len() > display_count {
+        println!("   ... and {} more tracks", tracks.len() - display_count);
+    }
 }
 
 /// Initialize logging based on verbosity level
