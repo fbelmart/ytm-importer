@@ -1,12 +1,16 @@
-use ytm_importer::{Cli, CsvParser, ParseStats};
+use ytm_importer::{Cli, CsvParser, ParseStats, auth::YouTubeMusicAuth, config_loader::Config, TrackMatcher, MatchingStats, Track, YouTubeTrack};
+use std::time::Instant;
+use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use clap::Parser;
 use anyhow::{Result, Context};
-use indicatif::{ProgressBar, ProgressStyle};
 
 mod config;
 mod validation;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]  // <-- This attribute makes main() async
+async fn main() -> anyhow::Result<()> {
     // Parse CLI arguments
     let cli = Cli::parse();
 
@@ -59,13 +63,148 @@ fn main() -> anyhow::Result<()> {
     }
 
     println!("\n✅ CSV parsing completed!");
-    println!("   Next step: Searching for tracks on YouTube Music...");
 
-    // TODO: Add YouTube Music API integration
-    // TODO: Track matching logic
-    // TODO: Playlist creation
+    // Load OAuth configuration
+    println!("\n🔐 Setting up YouTube Music authentication...");
+    let oauth_config = load_oauth_config()?;
+
+    // Initialize authentication
+    let mut auth = YouTubeMusicAuth::new(
+        &oauth_config.client_id,
+        &oauth_config.client_secret,
+        &app_config.output_dir.join("auth"),
+    )?;
+
+    // Perform authorization (will use cached token if available)
+    auth.authorize().await?;  // <-- Now this works because main is async
+
+    // Get API client for subsequent requests
+    let api_client = auth.create_api_client()?;
+    println!("✅ YouTube Music API client ready (connection pooling enabled)");
+
+    println!("\n🎯 Searching for {} tracks on YouTube Music...", tracks.len());
+
+    // Initialize matcher
+    let mut matcher = TrackMatcher::new(
+        api_client,
+        app_config.min_confidence,
+        app_config.max_retries as u32,
+    );
+
+    // Set up progress tracking
+    let multi_progress = MultiProgress::new();
+    let search_pb = multi_progress.add(ProgressBar::new(tracks.len() as u64));
+
+    // Create progress style with proper error handling
+    let search_style = ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) - {msg}")
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Could not set progress bar style: {}", e);
+            ProgressStyle::default_bar()
+        })
+        .progress_chars("#>-");
+
+    search_pb.set_style(search_style);
+    search_pb.set_message("Searching...");
+
+    let stats_pb = multi_progress.add(ProgressBar::new(100));
+    let stats_style = ProgressStyle::default_bar()
+        .template("{msg}")
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Could not set stats bar style: {}", e);
+            ProgressStyle::default_bar()
+        });
+
+    stats_pb.set_style(stats_style);
+
+
+    // Process tracks (with concurrency limit)
+    let semaphore = Arc::new(Semaphore::new(5)); // Limit concurrent searches
+    let mut stats = MatchingStats::default();
+    let start_time = Instant::now();
+
+    // Store match results - use owned values, not references
+    let mut matched_tracks: Vec<(Track, YouTubeTrack, f64)> = Vec::new();
+    let mut unmatched_tracks: Vec<Track> = Vec::new();
+
+    for (i, track) in tracks.iter().enumerate() {
+        let _permit = semaphore.clone().acquire_owned().await?;
+
+        // Check if result is in cache (will be handled by matcher)
+        let cache_hit = matcher.cache_size() > 0; // Simplified for now
+
+        let result = matcher.search_track(track).await?;
+
+        if let Some(ref yt_track) = result.matched_track {
+            // Clone both to take ownership
+            matched_tracks.push((track.clone(), yt_track.clone(), result.confidence));
+        } else {
+            unmatched_tracks.push(track.clone());
+        }
+
+        stats.update(&result, cache_hit);
+
+        search_pb.inc(1);
+        search_pb.set_message(format!("Matched: {} | Unmatched: {}", matched_tracks.len(), unmatched_tracks.len()));
+
+        // Update stats every 10 tracks
+        if i % 10 == 0 && i > 0 {
+            stats_pb.set_message(format!(
+                "📊 Progress: {:.1}% | Confidence: {:.2} | Cache: {}/{}",
+                (i as f64 / tracks.len() as f64) * 100.0,
+                stats.average_confidence,
+                stats.cache_hits,
+                stats.cache_misses
+            ));
+        }
+    }
+
+    search_pb.finish_with_message(format!("✅ Completed: {} matched, {} unmatched", matched_tracks.len(), unmatched_tracks.len()));
+    stats_pb.finish_with_message("");
+
+    let elapsed = start_time.elapsed();
+    println!("\n⏱️  Search completed in {:.2?}", elapsed);
+
+    // Print statistics
+    stats.print_summary();
+
+    // Save unmatched tracks to CSV
+    if !unmatched_tracks.is_empty() {
+        save_unmatched_tracks(&unmatched_tracks, &import_config).await?;
+    }
+
+    // TODO: Create playlist with matched tracks
+    println!("\n📝 Next step: Creating playlist with {} matched tracks...", matched_tracks.len());
 
     Ok(())
+}
+
+
+/// Load OAuth configuration from config.toml or environment variables
+fn load_oauth_config() -> Result<OAuthConfig> {
+    // Try to load from config.toml first
+    if let Ok(config) = Config::from_default_paths() {
+        println!("📁 Loaded OAuth configuration from config.toml");
+        return Ok(OAuthConfig {
+            client_id: config.oauth2.client_id,
+            client_secret: config.oauth2.client_secret,
+        });
+    }
+
+    // Fall back to environment variables
+    println!("⚠️  No config.toml found, using environment variables");
+    Ok(OAuthConfig {
+        client_id: std::env::var("GOOGLE_CLIENT_ID")
+            .context("Please set GOOGLE_CLIENT_ID environment variable or create config.toml")?,
+        client_secret: std::env::var("GOOGLE_CLIENT_SECRET")
+            .context("Please set GOOGLE_CLIENT_SECRET environment variable or create config.toml")?,
+    })
+}
+
+/// Simple OAuth config struct
+struct OAuthConfig {
+    client_id: String,
+    client_secret: String,
 }
 
 /// Parse CSV file with optional spinner
@@ -236,4 +375,27 @@ fn ask_for_confirmation() -> Result<bool> {
 
     let input = input.trim().to_lowercase();
     Ok(input == "y" || input == "yes")
+}
+
+async fn save_unmatched_tracks(unmatched: &[Track], import_config: &config::ImportConfig) -> Result<()> {
+    let output_config = import_config.output_config();
+
+    let mut wtr = csv::Writer::from_path(&output_config.unmatched_csv)?;
+
+    // Write header
+    wtr.write_record(&["Title", "Artist", "Album", "Spotify URI"])?;
+
+    for track in unmatched {
+        wtr.write_record(&[
+            &track.title,
+            &track.artist,
+            track.album.as_deref().unwrap_or(""),
+            track.spotify_id.as_deref().unwrap_or(""),
+        ])?;
+    }
+
+    wtr.flush()?;
+    println!("📁 Unmatched tracks saved to: {}", output_config.unmatched_csv.display());
+
+    Ok(())
 }

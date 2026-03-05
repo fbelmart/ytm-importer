@@ -1,0 +1,9 @@
+# YouTube Music OAuth2 Configuration
+# Rename this file to config.toml and add your credentials
+
+[oauth2]
+client_id = "YOUR_CLIENT_ID.apps.googleusercontent.com"
+client_secret = "YOUR_CLIENT_SECRET"
+
+# Optional: Custom cache directory (defaults to ./output/auth)
+# cache_dir = "./output/auth"

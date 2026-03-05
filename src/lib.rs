@@ -1,6 +1,9 @@
 pub mod config;
 pub mod validation;
 pub mod csv_parser;
+pub mod auth;
+pub mod config_loader;
+pub mod matcher;
 
 use clap::Parser;
 
@@ -54,3 +57,5 @@ pub type AppResult<T> = anyhow::Result<T>;
 pub use config::{AppConfig, ImportConfig};
 pub use validation::ConfigValidator;
 pub use csv_parser::{CsvParser, Track, ParseStats};
+pub use auth::YouTubeMusicAuth;
+pub use matcher::{TrackMatcher, MatchResult, YouTubeTrack, MatchingStats};

@@ -33,3 +33,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# OAuth2 tokens (never commit these!)
+/output/auth/token.json
+/output/auth/
+config.toml
+*.pem
+*.key
