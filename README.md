@@ -2,6 +2,7 @@
 
 A Rust CLI tool to import Spotify playlists (from Exportify CSV) to YouTube Music.
 
+Mostly Dipsik
 ## Installation
 
 ### From Source
